@@ -28,6 +28,7 @@ class Platform:
         1: "BINANCE",
         2: "BITFINEX",
         3: "BITMEX",
+        4: "OKEX",
     }
     id_by_name = {v: k for k, v in name_by_id.items()}
 

@@ -1,6 +1,8 @@
+
+from dateutil import parser
 import zlib
 import re
-from hyperquant.api import Platform, Interval
+from hyperquant.api import Platform, Interval, Direction
 from hyperquant.clients import Endpoint, WSClient, Trade, ParamName, \
     Candle, WSConverter, RESTConverter, PrivatePlatformRESTClient
 
@@ -85,7 +87,10 @@ class OkexRESTClient(PrivatePlatformRESTClient):
 
 class OkexWSConverterV1(WSConverter):
     base_url = "wss://real.okex.com:10440/ws/v1"
-    is_source_in_timestring = True
+    # trade is in string time but candle is not 
+    # so need to handle them separately
+    # is_source_in_timestring = True
+    IS_SUBSCRIPTION_COMMAND_SUPPORTED = True
 
     param_lookup_by_class = {
         Trade: [
@@ -102,38 +107,66 @@ class OkexWSConverterV1(WSConverter):
             ParamName.PRICE_HIGH,
             ParamName.PRICE_LOW,
             ParamName.PRICE_CLOSE,
-            ParamName.AMOUNT,
+            None, # amount is not volume ??? ParamName.AMOUNT,
             ParamName.SYMBOL  # added manually
         ],
+    }
+    param_value_lookup = {
+        Interval.MIN_1: "1min",
+        Interval.MIN_3: "3min",
+        Interval.MIN_5: "5m",
+        Interval.MIN_15: "15min",
+        Interval.MIN_30: "30min",
+        Interval.HRS_1: "1hour",
+        Interval.HRS_2: "2hour",
+        Interval.HRS_4: "4hour",
+        Interval.HRS_6: "6hour",
+        Interval.HRS_12: "12hour",
+        Interval.DAY_1: "day",
+        Interval.DAY_3: "3day",
+        Interval.WEEK_1: "week",
+
+        ParamName.DIRECTION: {
+            Direction.SELL: "ask",
+            Direction.BUY: "bid",
+        },
     }
 
     def _generate_subscription(self, endpoint, symbol=None, **params):
         channel = super()._generate_subscription(endpoint, symbol, **params)
-        return (channel, symbol)
+        _, params = self.prepare_params(None, params)
+        channel_value = str()
+        if channel == Endpoint.TRADE:
+            channel_value = "ok_sub_spot_{}_deals".format(symbol)
+        elif channel == Endpoint.CANDLE and 'interval' in params:
+            channel_value = "ok_sub_spot_{0}_kline_{1}".format(symbol, params['interval'])
+        return channel_value
 
     def parse(self, endpoint, data):
         # skip binary packets
         if "binary" in data:
             if isinstance(data["binary"], int) and data["binary"]:
                 return
-        if data:
-            if data["channel"].endswith("_deals"):
+        if data and "channel" in data:
+            res = re.search("ok_sub_spot_(.+?)_deals", data["channel"])
+            if res:
                 endpoint = Endpoint.TRADE
-            elif data["channel"].endswith("_kline_Y"):
-                endpoint = Endpoint.Candle
-            if "data" in data and isinstance(data["data"], list):
-                symbol = re.search("ok_sub_spot_(.+?)_deals", data["channel"])
-                if symbol:
-                    symbol = symbol.group(1)
+                symbol = res.group(1)
+                data = data["data"]
+                data[0].append(symbol)
+                # convers string timestamp tp and unix timestamp
+                data[0][3] = int(parser.parse(data[0][3]).timestamp())
+            else:
+                res = re.search("ok_sub_spot_(.+?)_kline_(.+?)", data["channel"])
+                if res:
+                    endpoint = Endpoint.CANDLE
+                    symbol = res.group(1)
                     data = data["data"]
                     data[0].append(symbol)
-                else:
-                    symbol = re.search("ok_sub_spot_(.+?)_kline_Y", data["channel"])
-                    if symbol:
-                        symbol = symbol.group(1)
-                    data = data["data"]
-                    data[0].append(symbol)
-        # WARNING: FIXME: it gets nested list from api remove one of them
+                    # convers to milliseconds and int
+                    data[0][0] = int(data[0][0])/1000
+
+        # WARNING: FIXME: it gets nested list from ws api remove one of them
         return super().parse(endpoint, data)[0]
 
 
@@ -146,16 +179,11 @@ class OkexWSClient(WSClient):
     }
 
     def _send_subscribe(self, subscriptions):
-        batch_event = []
-        for channel, symbol in subscriptions:
-            if isinstance(channel, str) and channel == Endpoint.TRADE:
-                batch_event.append(
-                    {"event": "addChannel",
-                        "channel": "ok_sub_spot_{}_deals".format(symbol)})
-            elif isinstance(channel, str) and channel == Endpoint.CANDLE:
-                batch_event.append(
-                    {"event": "addChannel",
-                        "channel": "ok_sub_spot_{}_kline_Y".format(symbol)})
+        subscriptions = self.current_subscriptions
+        batch_event = list()
+        for channel in subscriptions:
+            if channel:
+                batch_event.append({"event": "addChannel", "channel":channel})
         self._send(batch_event)
 
     def inflate(self, data):
@@ -168,3 +196,13 @@ class OkexWSClient(WSClient):
 
     def _on_message(self, message):
         super()._on_message(self.inflate(message))
+
+# [{"binary":0,
+#   "channel":"ok_sub_spot_eth_btc_kline_1min",
+#   "data":[["1550947260000",
+#            "0.03821493", 
+#            "0.03821493",
+#            "0.03821493",
+#            "0.03821493",
+#            "0.00336"]]
+#  }]'
