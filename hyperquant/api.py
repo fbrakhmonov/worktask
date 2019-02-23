@@ -22,6 +22,7 @@ class Platform:
     BINANCE = 1
     BITFINEX = 2
     BITMEX = 3
+    OKEX = 4
 
     name_by_id = {
         1: "BINANCE",
