@@ -87,7 +87,7 @@ class OkexRESTClient(PrivatePlatformRESTClient):
 
 class OkexWSConverterV1(WSConverter):
     base_url = "wss://real.okex.com:10440/ws/v1"
-    # trade is in string time but candle is not 
+    # trade is in string time but candle is not
     # so need to handle them separately
     # is_source_in_timestring = True
     IS_SUBSCRIPTION_COMMAND_SUPPORTED = True
@@ -107,7 +107,7 @@ class OkexWSConverterV1(WSConverter):
             ParamName.PRICE_HIGH,
             ParamName.PRICE_LOW,
             ParamName.PRICE_CLOSE,
-            None, # amount is not volume ??? ParamName.AMOUNT,
+            None,  # amount is not volume ??? ParamName.AMOUNT,
             ParamName.SYMBOL  # added manually
         ],
     }
@@ -143,7 +143,7 @@ class OkexWSConverterV1(WSConverter):
         return channel_value
 
     def parse(self, endpoint, data):
-        # skip binary packets
+        # skip info packets
         if "binary" in data:
             if isinstance(data["binary"], int) and data["binary"]:
                 return
@@ -183,7 +183,7 @@ class OkexWSClient(WSClient):
         batch_event = list()
         for channel in subscriptions:
             if channel:
-                batch_event.append({"event": "addChannel", "channel":channel})
+                batch_event.append({"event": "addChannel", "channel": channel})
         self._send(batch_event)
 
     def inflate(self, data):
@@ -196,13 +196,3 @@ class OkexWSClient(WSClient):
 
     def _on_message(self, message):
         super()._on_message(self.inflate(message))
-
-# [{"binary":0,
-#   "channel":"ok_sub_spot_eth_btc_kline_1min",
-#   "data":[["1550947260000",
-#            "0.03821493", 
-#            "0.03821493",
-#            "0.03821493",
-#            "0.03821493",
-#            "0.00336"]]
-#  }]'

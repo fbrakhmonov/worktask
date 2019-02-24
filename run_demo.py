@@ -38,4 +38,4 @@ client.subscribe(endpoints=[Endpoint.TRADE, Endpoint.CANDLE], symbols=TEST_SYMBO
 
 print('\n\nWebsocket data\n\n')
 # Sleep to display incoming websocket items from separate thread
-time.sleep(10000)
+time.sleep(15)
